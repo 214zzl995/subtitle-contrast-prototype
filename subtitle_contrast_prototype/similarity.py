@@ -136,10 +136,20 @@ def compute_similarity(
 
 
 def _clamp_roi(roi: Roi, width: int, height: int) -> Roi:
-    x = min(max(0, roi.x), width - 1)
-    y = min(max(0, roi.y), height - 1)
-    w = max(1, min(roi.width, width - x))
-    h = max(1, min(roi.height, height - y))
+    if width <= 0 or height <= 0:
+        return Roi(x=0, y=0, width=1, height=1)
+
+    w = max(1, min(int(roi.width), width))
+    h = max(1, min(int(roi.height), height))
+
+    x = int(min(max(roi.x, 0), width - 1))
+    y = int(min(max(roi.y, 0), height - 1))
+
+    if x + w > width:
+        x = max(0, width - w)
+    if y + h > height:
+        y = max(0, height - h)
+
     return Roi(x=x, y=y, width=w, height=h)
 
 

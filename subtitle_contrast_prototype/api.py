@@ -22,6 +22,12 @@ from .similarity_v20 import compute_similarity as compute_similarity_v20
 from .similarity_v30 import compute_similarity as compute_similarity_v30
 from .similarity_v40 import compute_similarity as compute_similarity_v40
 from .similarity_v50 import compute_similarity as compute_similarity_v50
+from .similarity_v60 import compute_similarity as compute_similarity_v60
+from .similarity_v70 import compute_similarity as compute_similarity_v70
+from .similarity_v80 import compute_similarity as compute_similarity_v80
+from .similarity_v90 import compute_similarity as compute_similarity_v90
+from .similarity_v100 import compute_similarity as compute_similarity_v100
+from .similarity_v110 import compute_similarity as compute_similarity_v110
 
 
 @lru_cache(maxsize=1)
@@ -95,11 +101,13 @@ def compare(request: SubtitleSimilarityRequest) -> JSONResponse:
 
     version_raw = getattr(request, "version", None) or "v1.1"
     version = version_raw.lower()
-    supported = {"v1.0", "v1.1", "v2.0", "v3.0", "v4.0", "v5.0"}
+    supported = {"v1.0", "v1.1", "v2.0", "v3.0", "v4.0", "v5.0", "v6.0", "v7.0", "v8.0", "v9.0", "v10.0", "v11.0"}
     if version not in supported:
         raise HTTPException(status_code=400, detail=f"version must be one of: {', '.join(sorted(supported))}")
 
     try:
+        import time
+        start_ns = time.perf_counter_ns()
         if version == "v1.0":
             result = compute_similarity_v10(config, repository, request)
         elif version == "v2.0":
@@ -110,8 +118,21 @@ def compare(request: SubtitleSimilarityRequest) -> JSONResponse:
             result = compute_similarity_v40(config, repository, request)
         elif version == "v5.0":
             result = compute_similarity_v50(config, repository, request)
+        elif version == "v6.0":
+            result = compute_similarity_v60(config, repository, request)
+        elif version == "v7.0":
+            result = compute_similarity_v70(config, repository, request)
+        elif version == "v8.0":
+            result = compute_similarity_v80(config, repository, request)
+        elif version == "v9.0":
+            result = compute_similarity_v90(config, repository, request)
+        elif version == "v10.0":
+            result = compute_similarity_v100(config, repository, request)
+        elif version == "v11.0":
+            result = compute_similarity_v110(config, repository, request)
         else:
             result = compute_similarity_v11(config, repository, request)
+        elapsed_ms = (time.perf_counter_ns() - start_ns) / 1_000_000.0
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
@@ -119,15 +140,17 @@ def compare(request: SubtitleSimilarityRequest) -> JSONResponse:
 
     payload = _json_safe(
         {
-        "score": result.score,
-        "confidence": result.confidence,
-        "decision": result.decision,
-        "dx": result.delta[0],
-        "dy": result.delta[1],
-        "roi": result.roi.dict(),
-        "metrics": result.metrics,
-        "details": result.details,
-        "version": version_raw,
+            "score": result.score,
+            "confidence": result.confidence,
+            "decision": result.decision,
+            "dx": result.delta[0],
+            "dy": result.delta[1],
+            "roi": result.roi.dict(),
+            "roi_requested": request.roi.dict(),
+            "metrics": result.metrics,
+            "details": {**result.details, "latency_ms": elapsed_ms},
+            "version": version_raw,
+            "latency_ms": elapsed_ms,
         }
     )
     return JSONResponse(payload)
@@ -139,7 +162,8 @@ def _json_safe(value: Any) -> Any:
     if isinstance(value, list):
         return [_json_safe(item) for item in value]
     if isinstance(value, tuple):
-        return tuple(_json_safe(item) for item in value)
+        # Normalize tuples to lists for JSON safety
+        return [_json_safe(item) for item in value]
     if isinstance(value, np.ndarray):
         return [_json_safe(item) for item in value.tolist()]
     if isinstance(value, np.generic):

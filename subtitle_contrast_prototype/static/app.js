@@ -1,6 +1,6 @@
 // 全局状态
 const state = {
-    version: 'v5.0',
+    version: 'v11.0',
     frames: [],
     roi: { x: 0, y: 0, width: 0, height: 0 },
     isSelecting: false,
@@ -31,6 +31,7 @@ const elements = {
     resultRoi: document.getElementById('resultRoi'),
     resultMetrics: document.getElementById('resultMetrics'),
     resultRaw: document.getElementById('resultRaw'),
+    resultLatency: document.getElementById('resultLatency'),
     versionTag: document.getElementById('resultVersion'),
     status: document.getElementById('status')
 };
@@ -48,7 +49,31 @@ const metricLabels = {
     match_fraction: 'Match Fraction',
     stroke_width_penalty: 'Stroke Width Penalty',
     template_similarity: 'Template Similarity',
-    orb_similarity: 'ORB Similarity'
+    orb_similarity: 'ORB Similarity',
+    // v6.0 specific
+    s_final: 'Final S',
+    s_cov: 'Coverage',
+    c_bar: 'Avg Cost',
+    hamming: 'Hash Hamming',
+    hamming_tau: 'Hash Threshold',
+    hash_distance: 'Hash Distance',
+    hash_bits: 'Hash Bits',
+    normalized_distance: 'Hash Dist (norm)',
+    lpips_distance: 'LPIPS Distance',
+    lpips_score: 'LPIPS Score',
+    clip_similarity: 'CLIP Similarity',
+    clip_score: 'CLIP Score',
+    clip_distance: 'CLIP Distance',
+    clip_margin: 'CLIP Margin',
+    clip_views: 'CLIP Views',
+    clip_var_a: 'CLIP Var A',
+    clip_var_b: 'CLIP Var B',
+    feature_similarity: 'Feature Similarity',
+    feature_score: 'Feature Score',
+    feature_margin: 'Feature Margin',
+    feature_views: 'Feature Views',
+    feature_var_a: 'Feature Var A',
+    feature_var_b: 'Feature Var B'
 };
 
 // 工具函数
@@ -158,15 +183,33 @@ async function compareFrames() {
         return;
     }
     
+    const frameWidthPx = elements.canvasA.width || 0;
+    const frameHeightPx = elements.canvasA.height || 0;
+
+    const clampCoord = (value, maxValue) => {
+        if (maxValue <= 0) return 0;
+        return Math.max(0, Math.min(value, maxValue));
+    };
+
+    const clampSize = (value, remaining) => {
+        if (remaining <= 0) return 1;
+        return Math.max(1, Math.min(value, remaining));
+    };
+
+    const roiX = clampCoord(state.roi.x, frameWidthPx - 1);
+    const roiY = clampCoord(state.roi.y, frameHeightPx - 1);
+    const roiWidth = clampSize(state.roi.width, frameWidthPx - roiX);
+    const roiHeight = clampSize(state.roi.height, frameHeightPx - roiY);
+
     const requestData = {
         version,
         frame_a: frameA,
         frame_b: frameB,
         roi: {
-            x: state.roi.x,
-            y: state.roi.y,
-            width: state.roi.width,
-            height: state.roi.height
+            x: roiX,
+            y: roiY,
+            width: roiWidth,
+            height: roiHeight
         },
         mu_sub: parseFloat(elements.muSubInput.value),
         delta_y: parseFloat(elements.deltaYInput.value),
@@ -204,6 +247,13 @@ function displayResult(result) {
         elements.versionTag.textContent = result.version ?? state.version ?? '-';
     }
     elements.resultDelta.textContent = `(${result.dx ?? 0}, ${result.dy ?? 0})`;
+    if (elements.resultLatency) {
+        const latency =
+            Number.isFinite(result.latency_ms) ? Number(result.latency_ms) :
+            Number.isFinite(result.details?.latency_ms) ? Number(result.details.latency_ms) :
+            null;
+        elements.resultLatency.textContent = latency !== null ? latency.toFixed(1) : '-';
+    }
 
     if (result.roi) {
         elements.resultRoi.textContent = `x=${result.roi.x}, y=${result.roi.y}, w=${result.roi.width}, h=${result.roi.height}`;
@@ -213,11 +263,27 @@ function displayResult(result) {
 
     const metrics = result.metrics || {};
     const lines = Object.entries(metricLabels).map(([key, label]) => {
-        if (metrics[key] === undefined || metrics[key] === null) {
+        const value = metrics[key];
+        if (value === undefined || value === null) {
             return `${label}: n/a`;
         }
-        const pct = (metrics[key] * 100).toFixed(1);
-        return `${label}: ${pct}%`;
+        const num = Number(value);
+        if (!Number.isFinite(num)) {
+            return `${label}: n/a`;
+        }
+        const isFraction = num >= 0 && num <= 1;
+        let decimals;
+        if (isFraction) {
+            decimals = 4;
+        } else if (Math.abs(num) >= 100) {
+            decimals = 0;
+        } else if (Math.abs(num) >= 10) {
+            decimals = 2;
+        } else {
+            decimals = 4;
+        }
+        const formatted = num.toFixed(decimals);
+        return `${label}: ${formatted}`;
     });
     elements.resultMetrics.textContent = lines.join('\n');
 
@@ -253,16 +319,14 @@ function setupCanvasSelection() {
     
     function getMousePos(e) {
         const rect = canvas.getBoundingClientRect();
-        const scale = parseFloat(canvas.dataset.scale) || 1;
-        
-        // 计算鼠标在canvas上的位置(相对于显示尺寸)
-        const x = (e.clientX - rect.left);
-        const y = (e.clientY - rect.top);
-        
-        // 转换为原始图片坐标
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+        const x = Math.floor((e.clientX - rect.left) * scaleX);
+        const y = Math.floor((e.clientY - rect.top) * scaleY);
+
         return {
-            x: Math.floor(x / scale),
-            y: Math.floor(y / scale)
+            x: Math.max(0, Math.min(x, canvas.width - 1)),
+            y: Math.max(0, Math.min(y, canvas.height - 1))
         };
     }
     
@@ -294,7 +358,7 @@ function setupCanvasSelection() {
         }
         state.isSelecting = true;
         state.selectionStart = pos;
-        state.roi = { x: pos.x, y: pos.y, width: 0, height: 0 };
+        state.roi = { x: pos.x, y: pos.y, width: 1, height: 1 };
         updateROIDisplay();
     });
     
@@ -308,10 +372,17 @@ function setupCanvasSelection() {
         
         const x = Math.min(state.selectionStart.x, clampedX);
         const y = Math.min(state.selectionStart.y, clampedY);
-        const width = Math.abs(clampedX - state.selectionStart.x);
-        const height = Math.abs(clampedY - state.selectionStart.y);
-        
-        state.roi = { x, y, width, height };
+        const rawWidth = Math.abs(clampedX - state.selectionStart.x) + 1;
+        const rawHeight = Math.abs(clampedY - state.selectionStart.y) + 1;
+        const maxWidth = elements.canvasA.width - x;
+        const maxHeight = elements.canvasA.height - y;
+
+        state.roi = {
+            x,
+            y,
+            width: Math.max(1, Math.min(rawWidth, maxWidth)),
+            height: Math.max(1, Math.min(rawHeight, maxHeight))
+        };
         updateROIDisplay();
         drawSelection();
     });
