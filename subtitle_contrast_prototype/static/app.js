@@ -1,6 +1,6 @@
 // 全局状态
 const state = {
-    version: 'v1.1',
+    version: 'v5.0',
     frames: [],
     roi: { x: 0, y: 0, width: 0, height: 0 },
     isSelecting: false,
@@ -42,7 +42,13 @@ const metricLabels = {
     structure_ssim: 'Structure SSIM',
     layout_projection: 'Layout Projection',
     alignment_peak: 'POC Peak',
-    alignment_psr: 'POC PSR'
+    alignment_psr: 'POC PSR',
+    similarity: 'Similarity',
+    core_similarity: 'Core Similarity',
+    match_fraction: 'Match Fraction',
+    stroke_width_penalty: 'Stroke Width Penalty',
+    template_similarity: 'Template Similarity',
+    orb_similarity: 'ORB Similarity'
 };
 
 // 工具函数

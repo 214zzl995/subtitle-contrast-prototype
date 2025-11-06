@@ -16,9 +16,12 @@ import numpy as np
 
 from .config import AppConfig, load_config
 from .frames import FrameRepository
-from .similarity_v11 import compute_similarity as compute_similarity_v11, SubtitleSimilarityRequest
 from .similarity_v10 import compute_similarity as compute_similarity_v10
+from .similarity_v11 import compute_similarity as compute_similarity_v11, SubtitleSimilarityRequest
 from .similarity_v20 import compute_similarity as compute_similarity_v20
+from .similarity_v30 import compute_similarity as compute_similarity_v30
+from .similarity_v40 import compute_similarity as compute_similarity_v40
+from .similarity_v50 import compute_similarity as compute_similarity_v50
 
 
 @lru_cache(maxsize=1)
@@ -90,15 +93,23 @@ def compare(request: SubtitleSimilarityRequest) -> JSONResponse:
     config = _load_config()
     repository = _load_repository()
 
-    version = (getattr(request, "version", None) or "v1.1").lower()
-    if version not in {"v1.0", "v1.1", "v2.0"}:
-        raise HTTPException(status_code=400, detail="version must be 'v1.0', 'v1.1', or 'v2.0'")
+    version_raw = getattr(request, "version", None) or "v1.1"
+    version = version_raw.lower()
+    supported = {"v1.0", "v1.1", "v2.0", "v3.0", "v4.0", "v5.0"}
+    if version not in supported:
+        raise HTTPException(status_code=400, detail=f"version must be one of: {', '.join(sorted(supported))}")
 
     try:
         if version == "v1.0":
             result = compute_similarity_v10(config, repository, request)
         elif version == "v2.0":
             result = compute_similarity_v20(config, repository, request)
+        elif version == "v3.0":
+            result = compute_similarity_v30(config, repository, request)
+        elif version == "v4.0":
+            result = compute_similarity_v40(config, repository, request)
+        elif version == "v5.0":
+            result = compute_similarity_v50(config, repository, request)
         else:
             result = compute_similarity_v11(config, repository, request)
     except FileNotFoundError as exc:
@@ -116,7 +127,7 @@ def compare(request: SubtitleSimilarityRequest) -> JSONResponse:
         "roi": result.roi.dict(),
         "metrics": result.metrics,
         "details": result.details,
-        "version": version,
+        "version": version_raw,
         }
     )
     return JSONResponse(payload)
