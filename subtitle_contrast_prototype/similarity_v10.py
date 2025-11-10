@@ -7,6 +7,7 @@ from numpy.lib.stride_tricks import sliding_window_view
 
 from .config import AppConfig
 from .frames import FrameRepository
+from .roi_utils import PreparedRoiPair, get_prepared_roi_pair
 from .similarity_v11 import Roi, SubtitleSimilarityRequest, SubtitleSimilarityResult
 
 
@@ -14,10 +15,12 @@ def compute_similarity(
     config: AppConfig,
     repository: FrameRepository,
     request: SubtitleSimilarityRequest,
+    prepared: PreparedRoiPair | None = None,
 ) -> SubtitleSimilarityResult:
-    roi = _clamp_roi(request.roi, config.width, config.height)
-    a = repository.load_y_plane(request.frame_a)[roi.y : roi.y + roi.height, roi.x : roi.x + roi.width]
-    b = repository.load_y_plane(request.frame_b)[roi.y : roi.y + roi.height, roi.x : roi.x + roi.width]
+    roi_data = prepared or get_prepared_roi_pair(repository, request)
+    roi = roi_data.roi
+    a = roi_data.frame_a
+    b = roi_data.frame_b
 
     if a.size == 0 or b.size == 0:
         raise ValueError("ROI is empty after clamping to frame bounds.")

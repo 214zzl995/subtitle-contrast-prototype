@@ -9,6 +9,7 @@ import numpy as np
 
 from .config import AppConfig
 from .frames import FrameRepository
+from .roi_utils import PreparedRoiPair, get_prepared_roi_pair
 from .similarity_v11 import Roi, SubtitleSimilarityRequest, SubtitleSimilarityResult
 
 
@@ -33,10 +34,12 @@ def compute_similarity(
     config: AppConfig,
     repository: FrameRepository,
     request: SubtitleSimilarityRequest,
+    prepared: PreparedRoiPair | None = None,
 ) -> SubtitleSimilarityResult:
-    roi = _clamp_roi(request.roi, config.width, config.height)
-    frame_a = repository.load_y_plane(request.frame_a)[roi.y : roi.y + roi.height, roi.x : roi.x + roi.width]
-    frame_b = repository.load_y_plane(request.frame_b)[roi.y : roi.y + roi.height, roi.x : roi.x + roi.width]
+    roi_data = prepared or get_prepared_roi_pair(repository, request)
+    roi = roi_data.roi
+    frame_a = roi_data.frame_a
+    frame_b = roi_data.frame_b
 
     if frame_a.size == 0 or frame_b.size == 0:
         raise ValueError("ROI is empty after clamping to frame bounds.")

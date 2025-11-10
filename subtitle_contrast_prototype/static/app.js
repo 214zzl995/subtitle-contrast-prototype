@@ -1,12 +1,13 @@
 // 全局状态
 const state = {
-    version: 'v11.0',
+    version: 'v12.0',
     frames: [],
     roi: { x: 0, y: 0, width: 0, height: 0 },
     isSelecting: false,
     selectionStart: null,
     currentImageA: null,
-    currentImageB: null
+    currentImageB: null,
+    redrawSelection: null
 };
 
 // DOM 元素
@@ -33,7 +34,12 @@ const elements = {
     resultRaw: document.getElementById('resultRaw'),
     resultLatency: document.getElementById('resultLatency'),
     versionTag: document.getElementById('resultVersion'),
-    status: document.getElementById('status')
+    status: document.getElementById('status'),
+    vizPreImageA: document.getElementById('vizPreImageA'),
+    vizOverlayImageA: document.getElementById('vizOverlayImageA'),
+    vizPreImageB: document.getElementById('vizPreImageB'),
+    vizOverlayImageB: document.getElementById('vizOverlayImageB'),
+    vizMetadata: document.getElementById('vizMetadata')
 };
 
 const metricLabels = {
@@ -73,7 +79,13 @@ const metricLabels = {
     feature_margin: 'Feature Margin',
     feature_views: 'Feature Views',
     feature_var_a: 'Feature Var A',
-    feature_var_b: 'Feature Var B'
+    feature_var_b: 'Feature Var B',
+    phash_similarity: 'pHash Similarity',
+    phash_hamming: 'pHash Hamming',
+    core_iou: 'Core IoU',
+    edge_ncc: 'Edge NCC',
+    w_est_a: 'Stroke Width A',
+    w_est_b: 'Stroke Width B'
 };
 
 // 工具函数
@@ -167,7 +179,7 @@ async function loadFrameImage(frameName, canvas) {
     }
 }
 
-async function compareFrames() {
+function buildRequestPayload() {
     const frameA = elements.frameASelect.value;
     const frameB = elements.frameBSelect.value;
     const version = elements.versionSelect.value || state.version;
@@ -175,12 +187,12 @@ async function compareFrames() {
     
     if (!frameA || !frameB) {
         setStatus('Please select both frames', true);
-        return;
+        return null;
     }
     
     if (state.roi.width === 0 || state.roi.height === 0) {
         setStatus('Please select a ROI on Frame A', true);
-        return;
+        return null;
     }
     
     const frameWidthPx = elements.canvasA.width || 0;
@@ -196,12 +208,45 @@ async function compareFrames() {
         return Math.max(1, Math.min(value, remaining));
     };
 
-    const roiX = clampCoord(state.roi.x, frameWidthPx - 1);
-    const roiY = clampCoord(state.roi.y, frameHeightPx - 1);
-    const roiWidth = clampSize(state.roi.width, frameWidthPx - roiX);
-    const roiHeight = clampSize(state.roi.height, frameHeightPx - roiY);
+    let roiX = clampCoord(state.roi.x, frameWidthPx - 1);
+    let roiY = clampCoord(state.roi.y, frameHeightPx - 1);
+    let roiWidth = clampSize(state.roi.width, frameWidthPx - roiX);
+    let roiHeight = clampSize(state.roi.height, frameHeightPx - roiY);
 
-    const requestData = {
+    const frameBWidth = elements.canvasB.width || frameWidthPx;
+    const frameBHeight = elements.canvasB.height || frameHeightPx;
+    const widthPrimary = frameWidthPx || frameBWidth || 1;
+    const widthSecondary = frameBWidth || frameWidthPx || 1;
+    const heightPrimary = frameHeightPx || frameBHeight || 1;
+    const heightSecondary = frameBHeight || frameHeightPx || 1;
+    const commonWidth = Math.max(1, Math.min(widthPrimary, widthSecondary));
+    const commonHeight = Math.max(1, Math.min(heightPrimary, heightSecondary));
+
+    if (roiX >= commonWidth) {
+        roiX = commonWidth - 1;
+    }
+    if (roiY >= commonHeight) {
+        roiY = commonHeight - 1;
+    }
+
+    roiWidth = Math.max(1, Math.min(roiWidth, commonWidth - roiX));
+    roiHeight = Math.max(1, Math.min(roiHeight, commonHeight - roiY));
+
+    const adjustedChanged =
+        roiX !== state.roi.x ||
+        roiY !== state.roi.y ||
+        roiWidth !== state.roi.width ||
+        roiHeight !== state.roi.height;
+
+    if (adjustedChanged) {
+        state.roi = { x: roiX, y: roiY, width: roiWidth, height: roiHeight };
+        updateROIDisplay();
+        if (typeof state.redrawSelection === 'function') {
+            state.redrawSelection();
+        }
+    }
+
+    return {
         version,
         frame_a: frameA,
         frame_b: frameB,
@@ -215,7 +260,17 @@ async function compareFrames() {
         delta_y: parseFloat(elements.deltaYInput.value),
         search_radius: parseInt(elements.searchRadiusInput.value)
     };
-    
+
+}
+
+async function compareFrames() {
+    let requestData = buildRequestPayload();
+    if (!requestData) return;
+
+    await fetchVisualization(requestData, true);
+    requestData = buildRequestPayload();
+    if (!requestData) return;
+
     try {
         setStatus('Computing similarity...');
         const response = await fetch('/compare', {
@@ -235,6 +290,43 @@ async function compareFrames() {
     } catch (error) {
         setStatus(`Error: ${error.message}`, true);
         console.error('Compare error:', error);
+    }
+}
+
+async function fetchVisualization(requestData, silent = false) {
+    try {
+        if (!silent) {
+            setStatus('Fetching visualization...');
+        }
+        const response = await fetch('/visualize', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestData)
+        });
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData.detail || `HTTP ${response.status}`);
+        }
+        const payload = await response.json();
+        displayVisualization(payload);
+        if (payload.roi) {
+            state.roi = {
+                x: payload.roi.x,
+                y: payload.roi.y,
+                width: payload.roi.width,
+                height: payload.roi.height
+            };
+            updateROIDisplay();
+            if (typeof state.redrawSelection === 'function') {
+                state.redrawSelection();
+            }
+        }
+        if (!silent) {
+            setStatus('Visualization ready');
+        }
+    } catch (error) {
+        setStatus(`Visualization error: ${error.message}`, true);
+        console.error('Visualize error:', error);
     }
 }
 
@@ -288,6 +380,43 @@ function displayResult(result) {
     elements.resultMetrics.textContent = lines.join('\n');
 
     elements.resultRaw.textContent = JSON.stringify(result, null, 2);
+}
+
+function displayVisualization(payload) {
+    if (payload.version && elements.versionTag) {
+        elements.versionTag.textContent = payload.version;
+    }
+    if (payload.roi) {
+        elements.resultRoi.textContent = `x=${payload.roi.x}, y=${payload.roi.y}, w=${payload.roi.width}, h=${payload.roi.height}`;
+    }
+
+    const frames = payload.frames || {};
+    const frameA = frames.frame_a || {};
+    const frameB = frames.frame_b || {};
+
+    setVizImage(elements.vizPreImageA, frameA.preprocessed_png);
+    setVizImage(elements.vizOverlayImageA, frameA.overlay_png);
+    setVizImage(elements.vizPreImageB, frameB.preprocessed_png);
+    setVizImage(elements.vizOverlayImageB, frameB.overlay_png);
+
+    if (elements.vizMetadata) {
+        const meta = JSON.stringify({
+            frame_a: frameA.metadata || {},
+            frame_b: frameB.metadata || {},
+        }, null, 2);
+        elements.vizMetadata.textContent = meta;
+    }
+}
+
+function setVizImage(element, dataUrl) {
+    if (!element) return;
+    if (dataUrl) {
+        element.src = dataUrl;
+        element.style.display = 'block';
+    } else {
+        element.removeAttribute('src');
+        element.style.display = 'none';
+    }
 }
 
 // 在Frame B上绘制选区
@@ -349,6 +478,10 @@ function setupCanvasSelection() {
         // 同步绘制Frame B的选区
         drawSelectionOnFrameB();
     }
+
+    state.redrawSelection = () => {
+        drawSelection();
+    };
     
     canvas.addEventListener('mousedown', (e) => {
         const pos = getMousePos(e);

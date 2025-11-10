@@ -7,6 +7,7 @@ import numpy as np
 # ---- 与工程对齐的类型（保持原接口） -----------------------------------------
 from .config import AppConfig
 from .frames import FrameRepository
+from .roi_utils import PreparedRoiPair, get_prepared_roi_pair
 from .similarity_v11 import Roi, SubtitleSimilarityRequest, SubtitleSimilarityResult
 
 # ---- 参数 -------------------------------------------------------------------
@@ -30,23 +31,18 @@ def compute_similarity(
     config: AppConfig,
     repository: FrameRepository,
     request: SubtitleSimilarityRequest,
+    prepared: PreparedRoiPair | None = None,
 ) -> SubtitleSimilarityResult:
     req_roi = request.roi
     mu = float(request.mu_sub)
     delta = max(float(request.delta_y), 1.0)
 
-    # 用整帧来“吸附”ROI到真正的字幕带（只动 y）
-    A_full = repository.load_y_plane(request.frame_a)
-    B_full = repository.load_y_plane(request.frame_b)
-    H, W = A_full.shape[:2]
-
-    roi = _clamp_roi(req_roi, W, H)
-    roi = _snap_roi_to_belt(A_full, roi, mu, delta)
-
-    a_raw = A_full[roi.y:roi.y+roi.height, roi.x:roi.x+roi.width]
-    b_raw = B_full[roi.y:roi.y+roi.height, roi.x:roi.x+roi.width]
+    roi_data = prepared or get_prepared_roi_pair(repository, request)
+    roi = roi_data.roi
+    a_raw = roi_data.frame_a
+    b_raw = roi_data.frame_b
     if a_raw.size == 0 or b_raw.size == 0:
-        return _different(roi, reason="roi_empty_after_snap")
+        return _different(roi, reason="roi_empty_after_prepare")
 
     # 1) 预处理：上采样 + 局部归一 + 背景抑制 + 颜色先验
     _, a_top, a_w = _preprocess(a_raw, mu, delta)
