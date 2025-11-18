@@ -33,6 +33,7 @@ from .similarity_v90 import compute_similarity as compute_similarity_v90
 from .similarity_v100 import compute_similarity as compute_similarity_v100
 from .similarity_v110 import compute_similarity as compute_similarity_v110
 from .similarity_v120 import compute_similarity as compute_similarity_v120
+from .similarity_v130 import compute_similarity as compute_similarity_v130
 from .visualization import render_visualization
 from .preprocess import inverse_clamp_uint8
 from .roi_utils import PreparedRoiPair, build_prepared_roi_pair
@@ -109,7 +110,7 @@ def compare(request: SubtitleSimilarityRequest) -> JSONResponse:
 
     version_raw = getattr(request, "version", None) or "v1.1"
     version = version_raw.lower()
-    supported = {"v1.0", "v1.1", "v2.0", "v3.0", "v4.0", "v5.0", "v6.0", "v7.0", "v8.0", "v9.0", "v10.0", "v11.0", "v12.0"}
+    supported = {"v1.0", "v1.1", "v2.0", "v3.0", "v4.0", "v5.0", "v6.0", "v7.0", "v8.0", "v9.0", "v10.0", "v11.0", "v12.0", "v13.0", "v130"}
     if version not in supported:
         raise HTTPException(status_code=400, detail=f"version must be one of: {', '.join(sorted(supported))}")
 
@@ -151,6 +152,8 @@ def compare(request: SubtitleSimilarityRequest) -> JSONResponse:
             result = compute_similarity_v110(config, repo, request, prepared_roi)
         elif version == "v12.0":
             result = compute_similarity_v120(config, repo, request, prepared_roi)
+        elif version in {"v13.0", "v130"}:
+            result = compute_similarity_v130(config, repo, request, prepared_roi)
         else:
             result = compute_similarity_v11(config, repo, request, prepared_roi)
         elapsed_ms = (time.perf_counter_ns() - start_ns) / 1_000_000.0

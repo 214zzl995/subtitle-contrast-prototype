@@ -85,7 +85,9 @@ const metricLabels = {
     core_iou: 'Core IoU',
     edge_ncc: 'Edge NCC',
     w_est_a: 'Stroke Width A',
-    w_est_b: 'Stroke Width B'
+    w_est_b: 'Stroke Width B',
+    count_a: 'Brightness Count A',
+    count_b: 'Brightness Count B'
 };
 
 // 工具函数
